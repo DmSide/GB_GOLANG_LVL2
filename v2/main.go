@@ -2,12 +2,14 @@ package main
 
 import (
 	"fmt"
-	"os"
+	"io/ioutil"
+	"log"
 	// _ "github.com/gorilla/websocket"
 	// _ "github.com/valyala/fasthttp"
 	_ "os"
 	"path/filepath"
 	_ "path/filepath"
+	"sync"
 )
 
 //В качестве завершающего задания нужно выполнить программу поиска дубликатов файлов. Дубликаты файлов - это файлы, которые совпадают по имени файла и по его размеру. Нужно написать консольную программу, которая проверяет наличие дублирующихся файлов.
@@ -41,34 +43,40 @@ func (f *MyFileInfo) Contains(list []MyFileInfo) bool {
 }
 
 func FindDuplicates(dirPath string) {
-	ch := make(chan MyFileInfo, 100)
+	var ch []chan MyFileInfo
 
 	absDirPath, err := filepath.Abs(dirPath)
 	if err != nil {
 		fmt.Println(err.Error())
 	}
 
-	all, err := GetListOfFiles(ch, absDirPath)
-	if err != nil {
-		fmt.Println(err.Error())
-	}
-
-	close(ch)
-
-	//for v := <-ch {
-	//
-	//}
+	go GetListOfFiles(ch, absDirPath)
 
 	var uniques []MyFileInfo
 	var doubles []MyFileInfo
-	for _, fi := range all {
-		// fmt.Println(fi.FilePath)
-		if !fi.Contains(uniques) {
-			uniques = append(uniques, fi)
+
+	for {
+		fi, ok := <-Merge(ch...)
+		if ok == false {
+			fmt.Println(fi, ok, "<-- loop broke!")
+			break // exit break loop
 		} else {
-			doubles = append(doubles, fi)
+			if !fi.Contains(uniques) {
+				uniques = append(uniques, fi)
+			} else {
+				doubles = append(doubles, fi)
+			}
 		}
 	}
+
+	//for fi := range ch {
+	//	// fmt.Println(fi.FilePath)
+	//	if !fi.Contains(uniques) {
+	//		uniques = append(uniques, fi)
+	//	} else {
+	//		doubles = append(doubles, fi)
+	//	}
+	//}
 
 	fmt.Println("Doubles:")
 	for _, double := range doubles {
@@ -84,19 +92,76 @@ func FindDuplicates(dirPath string) {
 	}
 }
 
-func GetListOfFiles(ch chan MyFileInfo, dirPath string) ([]MyFileInfo, error) {
-	var files []MyFileInfo
-	err := filepath.Walk(dirPath, func(path string, info os.FileInfo, err error) error {
-		if !info.IsDir() {
-			files = append(files, MyFileInfo{
-				path,
-				info.Name(),
-				info.Size(),
-			})
+// Merge Use fan-in pattern
+func Merge(cs ...chan MyFileInfo) chan MyFileInfo {
+	var wg sync.WaitGroup
+
+	out := make(chan MyFileInfo)
+
+	// Запускаем send goroutine
+	// для каждого входящего канала в cs.
+	// send копирует значения из c в out
+	// до тех пор пока c не закрыт, затем вызываем wg.Done.
+	send := func(c <-chan MyFileInfo) {
+		for n := range c {
+			out <- n
 		}
-		return nil
-	})
-	return files, err
+		wg.Done()
+	}
+
+	wg.Add(len(cs))
+	for _, c := range cs {
+		go send(c)
+	}
+
+	// Запускаем goroutine чтобы закрыть out
+	// когда все send goroutine выполнены
+	// Это должно начаться после вызова wg.Add.
+	go func() {
+		wg.Wait()
+		close(out)
+	}()
+	return out
+}
+
+func GetListOfFiles(chOut []chan MyFileInfo, dirPath string) {
+	chIn := make(chan MyFileInfo)
+	chOut = append(chOut, chIn)
+
+	go func(chIn chan MyFileInfo, chOut []chan MyFileInfo, dirPath string) {
+		fs, err := ioutil.ReadDir(dirPath)
+		if err != nil {
+			log.Fatal(err)
+		}
+
+		for _, val := range fs {
+			fullPath := dirPath + "/" + val.Name()
+			if val.IsDir() {
+				// go GetListOfFiles(chOut, fullPath)
+			} else {
+				chIn <- MyFileInfo{
+					fullPath,
+					val.Name(),
+					val.Size(),
+				}
+			}
+		}
+
+		close(chIn)
+	}(chIn, chOut, dirPath)
+
+	//err := filepath.Walk(dirPath, func(path string, info os.FileInfo, err error) error {
+	//	if !info.IsDir() {
+	//
+	//		files = append(files, MyFileInfo{
+	//			path,
+	//			info.Name(),
+	//			info.Size(),
+	//		})
+	//	}
+	//	return nil
+	//})
+	//return files, err
 }
 
 func main() {
