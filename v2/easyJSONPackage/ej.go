@@ -5,6 +5,11 @@ type Example struct {
 }
 
 //easyjson:json
+type JSONData struct {
+	Data []string
+}
+
+//easyjson:json
 type EasyJSONStruct struct {
 	a int    `json:"a"`
 	b string `json:"b"`
