@@ -24,37 +24,81 @@ import (
 //Написать программу которая по случайному принципу генерирует копии уже имеющихся файлов, относительно указанной директории
 //Сравнить производительность программы в однопоточном и многопоточном режимах
 
+type MyFileInfo struct {
+	FilePath string
+	name     string
+	size     int64
+}
+
+func (f *MyFileInfo) Contains(list []MyFileInfo) bool {
+	for _, val := range list {
+		if val.size == f.size && val.name == f.name {
+			return true
+		}
+	}
+
+	return false
+}
+
 func FindDuplicates(dirPath string) {
-	ch := make(chan int, 100)
+	ch := make(chan MyFileInfo, 100)
 
 	absDirPath, err := filepath.Abs(dirPath)
 	if err != nil {
 		fmt.Println(err.Error())
 	}
 
-	GetListOfFiles(ch, absDirPath)
+	all, err := GetListOfFiles(ch, absDirPath)
+	if err != nil {
+		fmt.Println(err.Error())
+	}
+
+	close(ch)
 
 	//for v := <-ch {
 	//
 	//}
 
+	var uniques []MyFileInfo
+	var doubles []MyFileInfo
+	for _, fi := range all {
+		// fmt.Println(fi.FilePath)
+		if !fi.Contains(uniques) {
+			uniques = append(uniques, fi)
+		} else {
+			doubles = append(doubles, fi)
+		}
+	}
+
+	fmt.Println("Doubles:")
+	for _, double := range doubles {
+		fmt.Println(double)
+	}
+
+	fmt.Println()
+	fmt.Println()
+
+	fmt.Println("Unique:")
+	for _, unique := range uniques {
+		fmt.Println(unique)
+	}
 }
 
-func FilePathWalkDir(root string) ([]string, error) {
-	var files []string
-	err := filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
+func GetListOfFiles(ch chan MyFileInfo, dirPath string) ([]MyFileInfo, error) {
+	var files []MyFileInfo
+	err := filepath.Walk(dirPath, func(path string, info os.FileInfo, err error) error {
 		if !info.IsDir() {
-			files = append(files, path)
+			files = append(files, MyFileInfo{
+				path,
+				info.Name(),
+				info.Size(),
+			})
 		}
 		return nil
 	})
 	return files, err
 }
 
-func GetListOfFiles(ch chan, dirPath string) {
-	FilePathWalkDir(dirPath)
-}
-
 func main() {
-	FindDuplicates("../files")
+	FindDuplicates("./files")
 }
