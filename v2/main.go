@@ -3,7 +3,6 @@ package main
 import (
 	"fmt"
 	"io/ioutil"
-	"log"
 	// _ "github.com/gorilla/websocket"
 	// _ "github.com/valyala/fasthttp"
 	_ "os"
@@ -42,41 +41,50 @@ func (f *MyFileInfo) Contains(list []MyFileInfo) bool {
 	return false
 }
 
+func GetUniqueAndDoubles(done chan struct{}, chOut chan MyFileInfo) ([]MyFileInfo, []MyFileInfo) {
+	var uniques []MyFileInfo
+	var doubles []MyFileInfo
+
+	chanClosed := false
+
+	for {
+		select {
+		case <-done:
+			if !chanClosed {
+				close(chOut)
+				chanClosed = true
+			}
+		case fi, ok := <-chOut:
+			if !ok {
+				if chanClosed {
+					return uniques, doubles
+				}
+			} else {
+				// fmt.Println(fi, ok, "<-- reading ...")
+				if !fi.Contains(uniques) {
+					uniques = append(uniques, fi)
+				} else {
+					doubles = append(doubles, fi)
+				}
+			}
+
+		default:
+		}
+	}
+}
+
 func FindDuplicates(dirPath string) {
-	var ch []chan MyFileInfo
+	chOut := make(chan MyFileInfo)
 
 	absDirPath, err := filepath.Abs(dirPath)
 	if err != nil {
 		fmt.Println(err.Error())
 	}
 
-	go GetListOfFiles(ch, absDirPath)
+	done := make(chan struct{})
+	go GetListOfFiles(done, chOut, absDirPath)
 
-	var uniques []MyFileInfo
-	var doubles []MyFileInfo
-
-	for {
-		fi, ok := <-Merge(ch...)
-		if ok == false {
-			fmt.Println(fi, ok, "<-- loop broke!")
-			break // exit break loop
-		} else {
-			if !fi.Contains(uniques) {
-				uniques = append(uniques, fi)
-			} else {
-				doubles = append(doubles, fi)
-			}
-		}
-	}
-
-	//for fi := range ch {
-	//	// fmt.Println(fi.FilePath)
-	//	if !fi.Contains(uniques) {
-	//		uniques = append(uniques, fi)
-	//	} else {
-	//		doubles = append(doubles, fi)
-	//	}
-	//}
+	uniques, doubles := GetUniqueAndDoubles(done, chOut)
 
 	fmt.Println("Doubles:")
 	for _, double := range doubles {
@@ -124,44 +132,34 @@ func Merge(cs ...chan MyFileInfo) chan MyFileInfo {
 	return out
 }
 
-func GetListOfFiles(chOut []chan MyFileInfo, dirPath string) {
-	chIn := make(chan MyFileInfo)
-	chOut = append(chOut, chIn)
+func GetListOfFiles(chDone chan struct{}, chOut chan MyFileInfo, dirPath string) {
+	defer close(chDone)
 
-	go func(chIn chan MyFileInfo, chOut []chan MyFileInfo, dirPath string) {
-		fs, err := ioutil.ReadDir(dirPath)
-		if err != nil {
-			log.Fatal(err)
-		}
+	var dones []chan struct{}
 
-		for _, val := range fs {
-			fullPath := dirPath + "/" + val.Name()
-			if val.IsDir() {
-				// go GetListOfFiles(chOut, fullPath)
-			} else {
-				chIn <- MyFileInfo{
-					fullPath,
-					val.Name(),
-					val.Size(),
-				}
+	fileInfo, _ := ioutil.ReadDir(dirPath)
+	for _, info := range fileInfo {
+		fullPath := dirPath + "/" + info.Name()
+		if !info.IsDir() {
+			chOut <- MyFileInfo{
+				fullPath,
+				info.Name(),
+				info.Size(),
 			}
+		} else {
+			done := make(chan struct{})
+			dones = append(dones, done)
+			go func(done chan struct{}, chOut chan MyFileInfo, fullPath string) {
+				GetListOfFiles(done, chOut, fullPath)
+			}(done, chOut, fullPath)
 		}
+	}
 
-		close(chIn)
-	}(chIn, chOut, dirPath)
-
-	//err := filepath.Walk(dirPath, func(path string, info os.FileInfo, err error) error {
-	//	if !info.IsDir() {
-	//
-	//		files = append(files, MyFileInfo{
-	//			path,
-	//			info.Name(),
-	//			info.Size(),
-	//		})
-	//	}
-	//	return nil
-	//})
-	//return files, err
+	for _, ch := range dones {
+		select {
+		case <-ch:
+		}
+	}
 }
 
 func main() {
