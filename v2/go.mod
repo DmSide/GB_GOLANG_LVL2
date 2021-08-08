@@ -1,4 +1,4 @@
-module external_module/v2
+module golangLVL2/v2
 
 go 1.15
 //

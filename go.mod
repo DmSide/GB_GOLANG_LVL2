@@ -1,4 +1,4 @@
-module external_module
+module golangLVL2
 
 go 1.15
 
@@ -8,4 +8,4 @@ go 1.15
 //	gopkg.in/check.v1 v1.0.0-20201130134442-10cb98267c6c
 //)
 
-require github.com/mailru/easyjson v0.7.7 // indirect
+// require github.com/mailru/easyjson v0.7.7 // indirect
