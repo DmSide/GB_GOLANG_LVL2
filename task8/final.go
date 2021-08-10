@@ -3,6 +3,8 @@ package task8
 import (
 	"fmt"
 	"io/ioutil"
+	"log"
+	"os"
 	"path/filepath"
 	"sync"
 )
@@ -69,7 +71,7 @@ func GetUniqueAndDoubles(done chan struct{}, chOut chan MyFileInfo) ([]MyFileInf
 	}
 }
 
-func FindDuplicates(dirPath string) {
+func FindDuplicates(dirPath string, deleteAfterFind bool) {
 	chOut := make(chan MyFileInfo)
 
 	absDirPath, err := filepath.Abs(dirPath)
@@ -93,6 +95,10 @@ func FindDuplicates(dirPath string) {
 	fmt.Println("Unique:")
 	for _, unique := range uniques {
 		fmt.Println(unique)
+	}
+
+	if deleteAfterFind {
+		DeleteFiles(doubles)
 	}
 }
 
@@ -155,5 +161,18 @@ func GetListOfFiles(chDone chan struct{}, chOut chan MyFileInfo, dirPath string)
 		select {
 		case <-ch:
 		}
+	}
+}
+
+func DeleteFiles(files []MyFileInfo) {
+	for _, file := range files {
+		go func(filePath string) {
+			if err := os.Chmod(filePath, os.FileMode(776)); err != nil {
+				log.Println(err)
+			}
+			if err := os.Remove(filePath); err != nil {
+				log.Println(err)
+			}
+		}(file.FilePath)
 	}
 }
